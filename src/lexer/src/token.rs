@@ -7,12 +7,12 @@ pub enum Token {
         base: IntBase
     },
     FloatLit(Float),
-    StringLit(i32),
+    StringLit(String),
     Ident(String),
     BoolLit(bool),
 
     Keyword(Keyword),
-    Sign(Sign),
+    Sign(Punctuation),
 
     Unknown(UnknownCharInfo)
 }
@@ -35,7 +35,7 @@ pub enum Keyword {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum Sign {
+pub enum Punctuation {
     /// ";"
     Semi,
     /// ","

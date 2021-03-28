@@ -2,12 +2,14 @@ pub mod token;
 use token::*;
 use nom::IResult;
 use nom::bytes::complete::{take_while, tag};
-use nom::sequence::{preceded, pair, tuple};
+use nom::sequence::{preceded, pair, tuple, delimited};
 use nom::branch::alt;
-use nom::combinator::recognize;
-use nom::character::complete::{alpha1, alphanumeric1, digit1};
+use nom::combinator::{recognize, map_res, map_opt, value, map, verify};
+use nom::character::complete::{alpha1, alphanumeric1, digit1, char};
 use std::str::FromStr;
-use nom::multi::many0;
+use nom::multi::{many0, fold_many0};
+use nom::bytes::complete::{take_while_m_n, is_not};
+use nom::character::complete::multispace1;
 
 #[macro_use]
 extern crate nom;
@@ -143,4 +145,102 @@ fn lexeme_float_lit(s: &str) -> IResult<&str, Token> {
     let float = f32::from_str(&float_str).unwrap();
     let token = Token::FloatLit(float.into());
     Ok((rest, token))
+}
+
+/*
+lexeme_string
+    Can contain any raw unescaped code point besides \ and "
+    Matches the following escape sequences: \b, \f, \n, \r, \t, \", \\, \/
+    Matches code points like Rust: \u{XXXX}, where XXXX can be up to 6
+    hex characters
+    an escape followed by whitespace consumes all whitespace between the
+    escape and the next non-whitespace character
+*/
+fn lexeme_unicode(input: & str) -> IResult<&str, char> {
+    let parse_hex = take_while_m_n(1, 6, |c: char| c.is_ascii_hexdigit());
+
+    //lexeme u{XXXX}.
+    let parse_delimited_hex = preceded(
+        char('u'),
+        delimited(char('{'), parse_hex, char('}')),
+    );
+
+    // In this case we take the hex bytes from parse_hex and attempt to
+    // convert them to a u32.
+    let parse_u32 = map_res(parse_delimited_hex, move |hex| u32::from_str_radix(hex, 16));
+
+    //because not all u32 values are valid unicode code points, we have to fallibly
+    // convert to char with from_u32.
+    map_opt(parse_u32, |value| std::char::from_u32(value))(input)
+}
+
+/// lexeme an escaped character: \n, \t, \r, \u{00AC}, etc.
+fn lexeme_escaped_char(input: &str) -> IResult<&str, char> {
+    preceded(
+        char('\\'),
+        alt((
+            lexeme_unicode,
+            value('\n', char('n')),
+            value('\r', char('r')),
+            value('\t', char('t')),
+            value('\u{08}', char('b')),
+            value('\u{0C}', char('f')),
+            value('\\', char('\\')),
+            value('/', char('/')),
+            value('"', char('"')),
+        )),
+    )(input)
+}
+
+/// lexeme a backslash, followed by any amount of whitespace. This is used later
+/// to discard any escaped whitespace.
+fn lexeme_escaped_whitespace(
+    input: &str,
+) -> IResult<&str, &str> {
+    preceded(char('\\'), multispace1)(input)
+}
+
+/// lexeme a non-empty block of text that doesn't include \ or "
+fn lexeme_literal(input: &str) -> IResult<&str, &str> {
+    let not_quote_slash = is_not("\"\\");
+    verify(not_quote_slash, |s: &str| !s.is_empty())(input)
+}
+
+/// A string fragment contains a fragment of a string being parsed: either
+/// a non-empty Literal (a series of non-escaped characters), a single
+/// parsed escaped character, or a block of escaped whitespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum StringFragment {
+    Literal(String),
+    EscapedChar(char),
+    EscapedWhitespace,
+}
+
+/// Combine lexeme_literal, lexeme_escaped_whitespace, and lexeme_escaped_char
+/// into a StringFragment.
+fn lexeme_fragment(input: &str) -> IResult<&str, StringFragment> {
+    alt((
+        map(lexeme_literal, |s| StringFragment::Literal(s.into())),
+        map(lexeme_escaped_char, StringFragment::EscapedChar),
+        value(StringFragment::EscapedWhitespace, lexeme_escaped_whitespace),
+    ))(input)
+}
+
+/// lexeme a string. Use a loop of lexeme_fragment and push all of the fragments
+/// into an output string.
+fn lexeme_string_lit(input: &str) -> IResult<&str, Token> {
+    let build_string = fold_many0(
+        lexeme_fragment,
+        String::new(),
+        |mut string, fragment| {
+            match fragment {
+                StringFragment::Literal(s) => string.push_str(&s),
+                StringFragment::EscapedChar(c) => string.push(c),
+                StringFragment::EscapedWhitespace => {}
+            }
+            string
+        },
+    );
+    let (rest, str) = delimited(char('"'), build_string, char('"'))(input)?;
+    Ok((rest, Token::StringLit(str)))
 }
