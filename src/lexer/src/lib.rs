@@ -40,8 +40,8 @@ mod tests {
 
     #[test]
     fn lexeme_ident_test() {
-        let id1 = "_fuck_123__SHIT";
-        assert_eq!(lexeme_ident(id1).unwrap().1, Token::Ident(id1.into()));
+        let id = "_fuck_123__SHIT";
+        assert_eq!(lexeme_ident(id).unwrap().1, Token::Ident(id.into()));
 
     }
 
@@ -49,6 +49,15 @@ mod tests {
     fn lexeme_float_lit_test() {
         let f = "114.514";
         assert_eq!(lexeme_float_lit(f).unwrap().1, Token::FloatLit(114.514.into()));
+    }
+
+    #[test]
+    fn lexeme_string_lit_test() {
+        let str_lit = "\"abc\"";
+        assert_eq!(lexeme_string_lit(str_lit).unwrap().1, Token::StringLit("abc".into()));
+
+        let str_lit = "\"A\\nA\"";
+        assert_eq!(lexeme_string_lit(str_lit).unwrap().1, Token::StringLit("A\nA".into()));
     }
 }
 
