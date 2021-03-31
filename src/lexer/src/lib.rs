@@ -1,4 +1,6 @@
 pub mod token;
+pub mod char_sequence;
+
 use token::*;
 use nom::IResult;
 use nom::bytes::complete::{take_while, tag};
