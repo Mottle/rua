@@ -4,6 +4,23 @@ use std::iter::Enumerate;
 use nom::error::{ParseError, ErrorKind};
 use std::str::FromStr;
 use std::ops::{Range, RangeFrom, RangeTo, RangeFull};
+use nom::regex::internal::Char;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use nom::bytes::complete::tag;
+    use nom::error::Error;
+
+    #[test]
+    fn tag_test() {
+        let cs = CharSequence::from("abc".as_bytes());
+        let needed = CharSequence::from("a".as_bytes());
+        // println!("{:?}", cs.compare(needed));
+        let f = tag::<CharSequence<'_>, CharSequence<'_>, Error<CharSequence<'_>>>(needed)(cs).unwrap();
+        assert_eq!(f.1, CharSequence::from_str("a"))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CharSequence<'s> {
@@ -33,12 +50,21 @@ impl Position {
 }
 
 impl <'t> CharSequence<'t> {
+    fn from_str(str: &str) -> CharSequence {
+        CharSequence::from(str.as_bytes())
+    }
+
+    fn from_str_pos(str: &str, position: Position) -> CharSequence {
+        CharSequence::from_pos(str.as_bytes(), position)
+    }
+
     fn from(u: &[u8]) -> CharSequence {
         CharSequence {
             sequence: u,
             position: Position::default(),
         }
     }
+
     fn from_pos(u: &[u8], position: Position) -> CharSequence {
         CharSequence {
             sequence: u,
@@ -47,16 +73,14 @@ impl <'t> CharSequence<'t> {
     }
 
     fn split_at(&self, count: usize) -> (CharSequence<'t>, CharSequence<'t>) {
-        let (prefix, suffix) = self.sequence.take_split(count);
+        let (suffix, prefix) = self.sequence.take_split(count);
         let mut col = self.position.column;
         let mut row = self.position.row;
         prefix.to_vec().iter().for_each(|u: &u8| {
             if u.as_char() == '\n' { row += 1; col = 0; }
-            if u.as_char() == ' ' || u.as_char() == '\t' || u.as_char() == '\r' {
-                col += 1;
-            }
+            else { col += 1; }
         });
-        (CharSequence::from_pos(prefix, self.position), CharSequence::from_pos(suffix, Position::from(row, col)))
+        (CharSequence::from_pos(suffix, Position::from(row, col)), CharSequence::from_pos(prefix, self.position))
     }
 }
 
@@ -78,14 +102,34 @@ impl <'s, 't> Compare<&'s [u8]> for CharSequence<'t> {
     }
 }
 
-fn compare_u8_slice(a: &[u8], b: &[u8]) -> CompareResult {
-    let a_len = a.len();
-    let b_len = b.len();
-    let length = min(a_len, b_len);
-    let a_slice = &a[0..length];
-    let b_slice = &b[0..length];
-    if a_slice == b_slice {
-        return if a_len == b_len {
+impl Compare<&str> for CharSequence<'_> {
+    fn compare(&self, t: &str) -> CompareResult {
+        self.compare(t.as_bytes())
+    }
+
+    fn compare_no_case(&self, t: &str) -> CompareResult {
+        self.compare_no_case(t.as_bytes())
+    }
+}
+
+impl Compare<CharSequence<'_>> for CharSequence<'_> {
+    fn compare(&self, t: CharSequence<'_>) -> CompareResult {
+        self.compare(t.sequence)
+    }
+
+    fn compare_no_case(&self, t: CharSequence<'_>) -> CompareResult {
+        self.compare_no_case(t.sequence)
+    }
+}
+
+fn compare_u8_slice(base: &[u8], to: &[u8]) -> CompareResult {
+    let base_len = base.len();
+    let to_len = to.len();
+    let length = min(base_len, to_len);
+    let base_slice = &base[0..length];
+    let to_slice = &to[0..length];
+    if base_slice == to_slice {
+        return if base_len >= to_len {
             CompareResult::Ok
         } else {
             CompareResult::Incomplete
@@ -239,8 +283,8 @@ impl <'t, R: FromStr> ParseTo<R> for CharSequence<'t> {
 
 impl <'t> Slice<Range<usize>> for CharSequence<'t> {
     fn slice(&self, range: Range<usize>) -> Self {
-        let (_, start) = self.split_at(range.start);
-        let (need, _) = start.split_at(range.end - range.start);
+        let (start, _) = self.split_at(range.start);
+        let (_, need) = start.split_at(range.end - range.start);
         need
     }
 }
