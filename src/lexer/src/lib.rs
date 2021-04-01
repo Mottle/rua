@@ -1,5 +1,6 @@
 pub mod token;
 pub mod char_sequence;
+pub mod sequence;
 
 use token::*;
 use nom::IResult;

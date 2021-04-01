@@ -4,21 +4,25 @@ use std::iter::Enumerate;
 use nom::error::{ParseError, ErrorKind};
 use std::str::FromStr;
 use std::ops::{Range, RangeFrom, RangeTo, RangeFull};
-use nom::regex::internal::Char;
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use nom::bytes::complete::tag;
+    use nom::bytes::complete::{tag, take_while};
     use nom::error::Error;
 
     #[test]
     fn tag_test() {
         let cs = CharSequence::from("abc".as_bytes());
-        let needed = CharSequence::from("a".as_bytes());
-        // println!("{:?}", cs.compare(needed));
-        let f = tag::<CharSequence<'_>, CharSequence<'_>, Error<CharSequence<'_>>>(needed)(cs).unwrap();
-        assert_eq!(f.1, CharSequence::from_str("a"))
+        let f = tag::<&str, CharSequence<'_>, Error<CharSequence<'_>>>("a")(cs).unwrap();
+        assert_eq!(f.1.to_string(), "a")
+    }
+
+    #[test]
+    fn take_while_test() {
+        let cs = CharSequence::from("abc abc".as_bytes());
+        let f = take_while::<fn(u8) -> bool, CharSequence<'_>, Error<CharSequence<'_>>>(|c: u8| c.is_ascii_alphabetic())(cs).unwrap();
+        assert_eq!(f.1.to_string(), "abc")
     }
 }
 
@@ -84,6 +88,12 @@ impl <'t> CharSequence<'t> {
     }
 }
 
+impl ToString for CharSequence<'_> {
+    fn to_string(&self) -> String {
+        String::from_utf8(self.as_bytes().to_vec()).unwrap()
+    }
+}
+
 impl <'s> AsBytes for CharSequence<'s> {
     fn as_bytes(&self) -> &[u8] {
         self.sequence
@@ -92,11 +102,11 @@ impl <'s> AsBytes for CharSequence<'s> {
 
 impl <'s, 't> Compare<&'s [u8]> for CharSequence<'t> {
     fn compare(&self, to: &[u8]) -> CompareResult {
-        compare_u8_slice(self.sequence, to)
+        compare_u8_slice(self.as_bytes(), to)
     }
 
     fn compare_no_case(&self, to: &[u8]) -> CompareResult {
-        let seq_with_no_case = self.sequence.to_ascii_lowercase();
+        let seq_with_no_case = self.as_bytes().to_ascii_lowercase();
         let to_with_no_case = to.to_ascii_lowercase();
         compare_u8_slice(seq_with_no_case.as_slice(), to_with_no_case.as_slice())
     }
@@ -114,11 +124,11 @@ impl Compare<&str> for CharSequence<'_> {
 
 impl Compare<CharSequence<'_>> for CharSequence<'_> {
     fn compare(&self, t: CharSequence<'_>) -> CompareResult {
-        self.compare(t.sequence)
+        self.compare(t.as_bytes())
     }
 
     fn compare_no_case(&self, t: CharSequence<'_>) -> CompareResult {
-        self.compare_no_case(t.sequence)
+        self.compare_no_case(t.as_bytes())
     }
 }
 
@@ -302,7 +312,7 @@ impl <'t> Slice<RangeTo<usize>> for CharSequence<'t> {
 }
 
 impl <'t> Slice<RangeFull> for CharSequence<'t> {
-    fn slice(&self, range: RangeFull) -> Self {
+    fn slice(&self, _: RangeFull) -> Self {
         self.slice(0..self.sequence.len())
     }
 }
